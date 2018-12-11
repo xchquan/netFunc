@@ -15,6 +15,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <string.h>
+#include <unistd.h>
 
 #ifndef SOCKET
 typedef int SOCKET;
@@ -27,21 +28,24 @@ typedef int SOCKET;
 {	\
 	close(fd);	\
 } while (0)
-#endif
+#endif	/// closesocket
 
 inline int	WSAGetLastError(){	return errno;	}
 
-#endif
+#endif	/// _MSC_VER
 
-/// è®¾ç½®é˜»å¡æ¨¡å¼ bNoBlock trueä¸ºéé˜»å¡ï¼Œfalseä¸ºé˜»å¡
 #ifdef _MSC_VER
+/// ÉèÖÃ×èÈûÄ£Ê½ bNoBlock trueÎª·Ç×èÈû£¬falseÎª×èÈû
 inline	int 	SetNoBlockMode(SOCKET sock, bool bNoBlock)
 {
-	/// ulå…è®¸éé˜»å¡æ¨¡å¼åˆ™éé›¶ï¼Œå¦‚ç¦æ­¢éé˜»å¡æ¨¡å¼åˆ™ä¸ºé›¶
+	/// ulÔÊĞí·Ç×èÈûÄ£Ê½Ôò·ÇÁã£¬Èç½ûÖ¹·Ç×èÈûÄ£Ê½ÔòÎªÁã
+	
 	u_long	ul = bNoBlock ? 1 : 0; 
 	return ioctlsocket(sock,FIONBIO,&ul);
 }
+
 #else
+
 inline	int 	SetNoBlockMode(int fd, bool bNoBlock)
 {
 	int value = fcntl(fd, F_GETFL, 0);
@@ -62,9 +66,27 @@ inline	int 	SetNoBlockMode(int fd, bool bNoBlock)
 }
 #endif
 
+inline int		SetSocketNoDelay(SOCKET s, bool bNoDelay)
+{
+	if (!bNoDelay)
+		return 0;
 
-/// è®¾ç½®fdçš„keepalivedæ¨¡å¼
+	int on = 1;
+	/* make socket here */
 #ifdef _MSC_VER
+	if (setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char *)&on, sizeof(on)) < 0)
+		return -1;
+#else
+	if (setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (void *)&on, sizeof(on)) < 0)
+		return -1;
+#endif
+	return 0;
+}
+
+
+/// ÉèÖÃfdµÄkeepalivedÄ£Ê½
+#ifdef _MSC_VER
+
 inline	int		SetKeepAliveMode(SOCKET sock, bool bKeepAlive)
 {
 	if (!bKeepAlive)
@@ -73,38 +95,48 @@ inline	int		SetKeepAliveMode(SOCKET sock, bool bKeepAlive)
 	struct tcp_keepalive keepin;
 	struct tcp_keepalive keepout;
 
-	keepin.keepaliveinterval=1000 * 5;	/// 15s æ¯15Så‘é€1åŒ…æ¢æµ‹æŠ¥æ–‡ï¼Œå‘5æ¬¡æ²¡æœ‰å›åº”ï¼Œå°±æ–­å¼€
-	keepin.keepalivetime=1000*60;		/// 60s è¶…è¿‡60Sæ²¡æœ‰æ•°æ®ï¼Œå°±å‘é€æ¢æµ‹åŒ…
+	keepin.keepaliveinterval=1000 * 5;	/// 15s Ã¿15S·¢ËÍ1°üÌ½²â±¨ÎÄ£¬·¢5´ÎÃ»ÓĞ»ØÓ¦£¬¾Í¶Ï¿ª
+	keepin.keepalivetime=1000*60;		/// 60s ³¬¹ı60SÃ»ÓĞÊı¾İ£¬¾Í·¢ËÍÌ½²â°ü
 	keepin.onoff=1;
 
 	DWORD dwRet = 0;
 	return WSAIoctl(sock,SIO_KEEPALIVE_VALS,&keepin,sizeof(keepin),&keepout,sizeof(keepout),&dwRet,NULL,NULL);
 }
+
 #else
+
 inline	int		SetKeepAliveMode(int fd, bool bKeepAlive)
 {
-	int keepalive = 1; 			///	å¼€å¯keepaliveå±æ€§
-	int keepidle = 120; 		///	å¦‚è¯¥è¿æ¥åœ¨60ç§’å†…æ²¡æœ‰ä»»ä½•æ•°æ®å¾€æ¥,åˆ™è¿›è¡Œæ¢æµ‹
-	int keepinterval = 15; 		///	æ¢æµ‹æ—¶å‘åŒ…çš„æ—¶é—´é—´éš”ä¸º5 ç§’
-	int keepcount = 3; 			///	æ¢æµ‹å°è¯•çš„æ¬¡æ•°.å¦‚æœç¬¬1æ¬¡æ¢æµ‹åŒ…å°±æ”¶åˆ°å“åº”äº†,åˆ™å2æ¬¡çš„ä¸å†å‘.
+	if (!bKeepAlive)
+		return 0;
+
+	int keepalive = 1; 			///	¿ªÆôkeepaliveÊôĞÔ
+
+	int keepidle = 120; 		///	Èç¸ÃÁ¬½ÓÔÚ60ÃëÄÚÃ»ÓĞÈÎºÎÊı¾İÍùÀ´,Ôò½øĞĞÌ½²â
+
+	int keepinterval = 15; 		///	Ì½²âÊ±·¢°üµÄÊ±¼ä¼ä¸ôÎª5 Ãë
+
+	int keepcount = 3; 			///	Ì½²â³¢ÊÔµÄ´ÎÊı.Èç¹ûµÚ1´ÎÌ½²â°ü¾ÍÊÕµ½ÏìÓ¦ÁË,Ôòºó2´ÎµÄ²»ÔÙ·¢.
 
 	int iRet = 0;
-	keepalive = bKeepAlive ? 1 : 0;
-	if (setsockopt(fd , SOL_SOCKET , SO_KEEPALIVE , (void *)&keepalive , sizeof(keepalive)) || 
-		setsockopt(fd , SOL_TCP , TCP_KEEPIDLE , (void*)&keepidle , sizeof(keepidle)) ||
-		setsockopt(fd , SOL_TCP , TCP_KEEPINTVL , (void *)&keepinterval , sizeof(keepinterval)) ||
-		setsockopt(fd , SOL_TCP , TCP_KEEPCNT , (void *)&keepcount , sizeof(keepcount))
-		)
+	if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (void *)&keepalive, sizeof(keepalive)) ||
+		setsockopt(fd, SOL_TCP, TCP_KEEPIDLE, (void*)&keepidle, sizeof(keepidle)) ||
+		setsockopt(fd, SOL_TCP, TCP_KEEPINTVL, (void *)&keepinterval, sizeof(keepinterval)) ||
+		setsockopt(fd, SOL_TCP, TCP_KEEPCNT, (void *)&keepcount, sizeof(keepcount))
+		) {
 		iRet = -1;
+	}
 
 	return iRet;
 }
+
 #endif
 
 
 #define		CNT_RECONN_LMT		5
 
-/// é˜»å¡è¿æ¥ï¼Œè¿”å›éé˜»å¡fd	ï¼ˆè¿”å›çš„fdå¯ç”¨ï¼‰
+/// ×èÈûÁ¬½Ó£¬·µ»Ø·Ç×èÈûfd	£¨·µ»ØµÄfd¿ÉÓÃ£©
+
 inline	SOCKET 	ConnectSync(const struct sockaddr* pAddr, socklen_t salen)
 {
 	SOCKET fd = INVALID_SOCKET;
@@ -132,14 +164,14 @@ STARTCONN:
 	
 	fd = socket(pAddr->sa_family, SOCK_STREAM, IPPROTO_TCP);
 
-	//è®¾ç½®å‘é€è¶…æ—¶6ç§’
+	//ÉèÖÃ·¢ËÍ³¬Ê±6Ãë
 	if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char *)&timeo, len))
 	{
 		closesocket(fd);
 		fd = INVALID_SOCKET;
 	}
 
-	//è®¾ç½®æ¥æ”¶è¶…æ—¶6ç§’
+	//ÉèÖÃ½ÓÊÕ³¬Ê±6Ãë
 	if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeo, len))
 	{
 		closesocket(fd);
@@ -148,7 +180,7 @@ STARTCONN:
 
 	if(fd != INVALID_SOCKET)
 	{
-		//å…ˆé˜»å¡è¿æ¥,è¿æ¥æˆåŠŸå,è®¾ç½®æˆéé˜»å¡æ–¹å¼
+		//ÏÈ×èÈûÁ¬½Ó,Á¬½Ó³É¹¦ºó,ÉèÖÃ³É·Ç×èÈû·½Ê½
 		iRet = connect(fd, pAddr, salen);
 		if(iRet)	//<0
 		{
@@ -164,19 +196,19 @@ STARTCONN:
 		}
 		else
 		{
-			//è®¾ç½®éé˜»å¡æ–¹å¼è¿æ¥
 			SetNoBlockMode(fd, true);
 		}
 	}
 	return fd;
 }
 
-/// éé˜»å¡è¿æ¥ï¼Œè¿”å›éé˜»å¡fd	ï¼ˆè¿”å›çš„fdä¸ä¸€å®šå¯ç”¨ï¼Œéœ€è¦é€šè¿‡åˆ¤æ–­æ‰èƒ½ç¡®å®šï¼‰
+/// ·Ç×èÈûÁ¬½Ó£¬·µ»Ø·Ç×èÈûfd	(·µ»ØµÄfd²»Ò»¶¨¿ÉÓÃ£¬ĞèÒªÍ¨¹ıÅĞ¶Ï²ÅÄÜÈ·¶¨)
+
 inline	SOCKET	ConnectAsync(const struct sockaddr* pAddr, socklen_t salen)
 {
 	SOCKET fd = socket(pAddr->sa_family, SOCK_STREAM, IPPROTO_TCP);
 
-	//è®¾ç½®å‘é€è¶…æ—¶6ç§’
+	/// timeout 6s
 #ifdef _MSC_VER
 	int timeo = 6000;
 #else
@@ -190,7 +222,7 @@ inline	SOCKET	ConnectAsync(const struct sockaddr* pAddr, socklen_t salen)
 		fd = INVALID_SOCKET;
 	}
 
-	//è®¾ç½®æ¥æ”¶è¶…æ—¶6ç§’
+	//ÉèÖÃ½ÓÊÕ³¬Ê±6Ãë
 	if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeo, len) <= -1)
 	{
 		closesocket(fd);
@@ -200,7 +232,7 @@ inline	SOCKET	ConnectAsync(const struct sockaddr* pAddr, socklen_t salen)
 	int iRet = 0;
 	if(fd != INVALID_SOCKET)
 	{
-		//éé˜»å¡è¿æ¥		
+		//·Ç×èÈûÁ¬½Ó		
 		SetNoBlockMode(fd, true);
 		iRet = connect(fd,pAddr,salen);
 
@@ -227,7 +259,7 @@ inline	SOCKET	ConnectSync(const char* pszIp,unsigned short uPort)
 	SOCKET fd = INVALID_SOCKET;
 	unsigned int uIP = inet_addr(pszIp);
 	if(INADDR_NONE == uIP)
-	{ /// ipåœ°å€ä¸ºåŸŸå
+	{ /// ipµØÖ·ÎªÓòÃû
 		int iNum = 0;
 		struct hostent	*inhost= NULL;
 
@@ -266,7 +298,7 @@ inline	SOCKET	ConnectAsync(const char* pszIp,unsigned short uPort)
 	SOCKET fd = INVALID_SOCKET;
 	unsigned int uIP = inet_addr(pszIp);
 	if(INADDR_NONE == uIP)
-	{ /// ipåœ°å€ä¸ºåŸŸå
+	{
 		int iNum = 0;
 		struct hostent	*inhost= NULL;
 
@@ -296,42 +328,42 @@ inline	SOCKET	ConnectAsync(const char* pszIp,unsigned short uPort)
 	return fd;
 }
 
-/// åŒæ­¥æ¥æ”¶æ•°æ®
-inline	int		RecvSync(SOCKET s,char *pBuf,int iLen,int iTimeOutS,int iTimeOutUs)
-{
-	struct timeval tv;
-	tv.tv_sec = iTimeOutS;
-	tv.tv_usec = iTimeOutUs;
-
-	fd_set fsRead;
-	FD_ZERO(&fsRead);
-	FD_SET(s,&fsRead);
-
-	int ifds = s + 1;
-	int iRes = 0;
-
-	int iCount = 10;
-	int iRecv = 0;
-	while (iLen > iRecv && iCount > 0)
-	{
-		iRes = select(ifds,&fsRead,NULL,NULL,&tv);
-		if (iRes < 0)
-			return iRes;
-		else if (iRes == 0)
-			return iRecv;
-
-		iRes = recv(s,pBuf + iRecv,iLen - iRecv,0);
-		if (iRes == 0)
-			return -1;
-		else if (iRes < 0)
-		{
-
-		}
-		else
-		{
-			iRecv += iRes;
-		}
-	}
-}
+/// Í¬²½½ÓÊÕÊı¾İ
+// inline	int		RecvSync(SOCKET s,char *pBuf,int iLen,int iTimeOutS,int iTimeOutUs)
+// {
+// 	struct timeval tv;
+// 	tv.tv_sec = iTimeOutS;
+// 	tv.tv_usec = iTimeOutUs;
+// 
+// 	fd_set fsRead;
+// 	FD_ZERO(&fsRead);
+// 	FD_SET(s,&fsRead);
+// 
+// 	int ifds = s + 1;
+// 	int iRes = 0;
+// 
+// 	int iCount = 10;
+// 	int iRecv = 0;
+// 	while (iLen > iRecv && iCount > 0)
+// 	{
+// 		iRes = select(ifds,&fsRead,NULL,NULL,&tv);
+// 		if (iRes < 0)
+// 			return iRes;
+// 		else if (iRes == 0)
+// 			return iRecv;
+// 
+// 		iRes = recv(s,pBuf + iRecv,iLen - iRecv,0);
+// 		if (iRes == 0)
+// 			return -1;
+// 		else if (iRes < 0)
+// 		{
+// 
+// 		}
+// 		else
+// 		{
+// 			iRecv += iRes;
+// 		}
+// 	}
+// }
 
 #endif	//__HEAD_NET_FUNC_H
